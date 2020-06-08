@@ -1,36 +1,53 @@
 get_entropy<-function(X,C)
 {
-  n<-length(X)
+  # function returns entropy of X's subset given the vector of classes C of the examples in this subset
   
-  # teraz wpisane na stale, dobrze byloby to przerobic na dowolna ilosc klas
-  nc1<-sum(C==1);nc2<-sum(C==2) #number of classes 1 and 2 in X
-  
-  p1<-nc1/n;  p2<-nc2/n
-  ent<- -p1*ifelse(p1>0,log2(p1),0)-p2*ifelse(p2>0,log2(p2),0)
-  return(ent)
+  n <- length(X)
+  unique_c <- (unique(C))
+  nc <- array(numeric())
+  for (i in 1:length(unique_c)) {
+    if (sum(C == unique_c[i]) > 0) {
+      nc <- rbind(nc, sum(C == unique_c[i]))
+    }
+  }
+  # vectorized entropy
+  p <- nc/n
+  ent <- t(-p)%*%log2(p)
+  # convert ent to numeric because matrix operations always return a matrix 
+  return(as.numeric(ent))
 }
 
 get_split_entropy<-function(X,C,node)
 {
   # to jest dobre dla ciaglych wartosci cech, dla tabel 0-1 trzeba chyba napisac te funckje inaczej
-  # czyli jak wyzej przerobic na dowolna ilosc klas, no i Decision Rule jako dzielenie na przyklady z 0 i 1
+  # np. Decision Rule jako dzielenie na przyklady z 0 i 1 w danym atrybucie
   
   n<-length(X)
-  # Dla zbiorow ciaglych jeszcze ogarniecie wiekszej ilosci kolumn, czyli pewnie 2 indexy, X['node', 'kolumna']
   pos<-which(X<=X[node]) #Decision rule
   
-  # to [-pos] chyba trzeba przerobic, bo dla innych zestawow danych moze sie tak ladnie nie podzielic 
+  # to [-pos] chyba trzeba przerobic, bo dla innych zestawow danych moze sie tak ladnie nie podzielic (?)
   X1<-X[pos];  X2<-X[-pos] #Split X by set node
   C1<-C[pos];  C2<-C[-pos]; #Split C by set node
   
-  #Entropy X1
-  ent1<-0; n1<-length(X1)
-  if(n1!=0) ent1<-get_entropy(X1,C1)
-  #Entropy X2
-  ent2<-0;  n2<-length(X2)
-  if(n2!=0) ent2<-get_entropy(X2,C2)
+  # ewentualnie mozna rozwazyc dodanie warunku stopu, gdy dlugosc wektora C1 lub C2 bedzie mniejsza 
+  # niz podana przez uzytkownika ='min_leaf' ,co moze przeciwdzialac przeuczeniu drzewa dla konkretnego zbioru danych
+  # wtedy trzeba zmienic przyporzadkowanie liscia do konkretnej klasy w funkcji fnd_node np. poprzez prawdopodobienstwo 
+  
+  #Entropy X1 I+
+  ent1<-0
+  n1<-length(X1)
+  if(n1!=0) 
+    ent1<-get_entropy(X1,C1)
+  #Entropy X2 I-
+  ent2<-0
+  n2<-length(X2)
+  if(n2!=0) 
+    ent2<-get_entropy(X2,C2)
   #Split entropy
-  # entropia po podziale
+  # laczna entropia po ocenie warunku/atrybutu j (podzialu na warunki jeszcze nie ma :)) 
+  # moze jako X w tej funkcji zostawic tylko wektor z tym warunkiem, a ogarniecie wielu warunkow w fnd_node?
+  
+  # E = n1/n * I+ + n2/2 * I-
   s_ent<- ent1*n1/n+ent2*n2/n
   return (s_ent)
 }
@@ -38,17 +55,22 @@ get_split_entropy<-function(X,C,node)
 fnd_node<-function(X,C)
 {
   # funkcja sprawdza wobec ktorego atrybutu nalezy podzielic w danym kroku tabele
-  # trzeba to zrobic na wszystkich kolumnach tabeli, teraz jest tylko na 1, b X ma tylko jedna
+  # trzeba to zrobic na wszystkich kolumnach tabeli, teraz jest tylko na 1, bo X ma tylko jedna
   node<-1
   min_ent<-get_split_entropy(X,C,node)
   for(i in 2:length(X))
   {
     ent<-get_split_entropy(X,C,i)  
     # poniewaz szukamy max(I-Ej), jest to rownoznaczne z szukaniem min(Ej)
-    # zeby zrobic to jak w prezentacji trzeba policzyc I = -1/2*log(1/2)-1/2*log(1/2) = 1, poniewaz mamy 2 klasy, 
-    # do ktorych nalezy po 10 przykladow, czyli prawdopodobienstwo trafienia na kazda klase to 1/2
-    # i od tego odejmowac ent i sprawdzic, dla podzialu wedlug ktorego "atrybutu" (tutaj wartosci X) wynik jest najwiekszy
-    if(ent<min_ent) {min_ent<-ent;node<-i}
+    # zeby zrobic to jak w prezentacji trzeba policzyc I = -1/2*log(1/2)-1/2*log(1/2) = 1, (poniewaz mamy 2 klasy, 
+    # do ktorych nalezy po 10 przykladow, czyli prawdopodobienstwo trafienia na kazda klase to 1/2) 
+    # (mozna to zrobic funkcja get_entropy() z gory) 
+    
+    # i od tego odejmowac ent i sprawdzic, dla podzialu wedlug ktorego atrybutu/warunku wynik jest najwiekszy
+    if(ent<min_ent) {
+      min_ent<-ent
+      node<-i
+      }
   }
   return(node)
 }
@@ -64,7 +86,7 @@ crt_dtree<-function(X,C)
   i<-1
   while(i<=length(lstX))
   {
-    # node to atrybut, wedlug ktorego dzielimy tabele
+    # node to atrybut/warunek, wedlug ktorego dzielimy tabele
     node<-fnd_node(lstX[[i]],lstC[[i]]) #find node for current dataset
     ent<-get_entropy(lstX[[i]],lstC[[i]]) #calculate entropy
     if(ent!=0)
@@ -82,10 +104,12 @@ crt_dtree<-function(X,C)
       HF<-rbind(HF,paste0(HF[i],"x")) # jedna strona rozgalezienia
       HF<-rbind(HF,paste0(HF[i],"y")) # i druga
       PosN<-c(PosN,node)  # zapisz nr atrybutu, wedlug ktorego podzielilismy tabele
-      ValN<-c(ValN,round(lstX[[i]][node],3)) # zapisz wartosc atrybutu dzielacego tabele
+      ValN<-c(ValN,round(lstX[[i]][node],3)) # zapisz wartosc atrybutu dzielacego tabele <- czy to potzebne?
     }
-    else
-      ValN<-c(ValN,round(unique(lstC[[i]]),3))
+    else{
+      # listC[[i]] w tym przypadku powinno zawierac juz tylko wystapienia jednej klasy
+      ValN<-c(ValN,round(unique(lstC[[i]]),3)) # zapisz przyporzadkowanie do klasy, "lisc"
+    }
     i<-i+1
   }
   tree<-list(HF,PosN,ValN) #Key information about tree
