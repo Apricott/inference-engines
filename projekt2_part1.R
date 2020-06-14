@@ -1,8 +1,7 @@
-get_entropy<-function(X,C)
+get_entropy<-function(C)
 {
-  # function returns entropy of X's subset given the vector of classes C of the examples in this subset
-  
-  n <- length(X)
+  # function returns entropy of subset given the vector of classes C of the examples in this subset
+  n <- length(C)
   unique_c <- (unique(C))
   nc <- array(numeric())
   for (i in 1:length(unique_c)) {
@@ -13,119 +12,136 @@ get_entropy<-function(X,C)
   # vectorized entropy
   p <- nc/n
   ent <- t(-p)%*%log2(p)
+  
   # convert ent to numeric because matrix operations always return a matrix 
   return(as.numeric(ent))
 }
 
 get_split_entropy<-function(X,C,node)
 {
-  # to jest dobre dla ciaglych wartosci cech, dla tabel 0-1 trzeba chyba napisac te funckje inaczej
-  # np. Decision Rule jako dzielenie na przyklady z 0 i 1 w danym atrybucie
+  n <- length(X)
+  pos <- which(X <= X[node]) # Decision rule
   
-  n<-length(X)
-  pos<-which(X<=X[node]) #Decision rule
-  
-  # to [-pos] chyba trzeba przerobic, bo dla innych zestawow danych moze sie tak ladnie nie podzielic (?)
-  X1<-X[pos];  X2<-X[-pos] #Split X by set node
-  C1<-C[pos];  C2<-C[-pos]; #Split C by set node
-  
-  # ewentualnie mozna rozwazyc dodanie warunku stopu, gdy dlugosc wektora C1 lub C2 bedzie mniejsza 
-  # niz podana przez uzytkownika ='min_leaf' ,co moze przeciwdzialac przeuczeniu drzewa dla konkretnego zbioru danych
-  # wtedy trzeba zmienic przyporzadkowanie liscia do konkretnej klasy w funkcji fnd_node np. poprzez prawdopodobienstwo 
+  X1<-X[pos];  X2<-X[-pos] # Split X by set node
+  C1<-C[pos];  C2<-C[-pos]; # Split C by set node
   
   #Entropy X1 I+
-  ent1<-0
-  n1<-length(X1)
-  if(n1!=0) 
-    ent1<-get_entropy(X1,C1)
+  I_plus <- 0
+  n1 <- length(X1)
+  if(n1 != 0) 
+    I_plus <- get_entropy(C1)
   #Entropy X2 I-
-  ent2<-0
-  n2<-length(X2)
-  if(n2!=0) 
-    ent2<-get_entropy(X2,C2)
+  I_minus <- 0
+  n2 <- length(X2)
+  if(n2 != 0) 
+    I_minus <- get_entropy(C2)
   #Split entropy
-  # laczna entropia po ocenie warunku/atrybutu j (podzialu na warunki jeszcze nie ma :)) 
-  # moze jako X w tej funkcji zostawic tylko wektor z tym warunkiem, a ogarniecie wielu warunkow w fnd_node?
-  
-  # E = n1/n * I+ + n2/2 * I-
-  s_ent<- ent1*n1/n+ent2*n2/n
-  return (s_ent)
+  E <- (n1/n * I_plus) + (n2/n * I_minus)
+  return(E)
 }
 
-fnd_node<-function(X,C)
+fnd_node<-function(X, C, I)
 {
-  # funkcja sprawdza wobec ktorego atrybutu nalezy podzielic w danym kroku tabele
-  # trzeba to zrobic na wszystkich kolumnach tabeli, teraz jest tylko na 1, bo X ma tylko jedna
-  node<-1
-  min_ent<-get_split_entropy(X,C,node)
-  for(i in 2:length(X))
-  {
-    ent<-get_split_entropy(X,C,i)  
-    # poniewaz szukamy max(I-Ej), jest to rownoznaczne z szukaniem min(Ej)
-    # zeby zrobic to jak w prezentacji trzeba policzyc I = -1/2*log(1/2)-1/2*log(1/2) = 1, (poniewaz mamy 2 klasy, 
-    # do ktorych nalezy po 10 przykladow, czyli prawdopodobienstwo trafienia na kazda klase to 1/2) 
-    # (mozna to zrobic funkcja get_entropy() z gory) 
-    
-    # i od tego odejmowac ent i sprawdzic, dla podzialu wedlug ktorego atrybutu/warunku wynik jest najwiekszy
-    if(ent<min_ent) {
-      min_ent<-ent
-      node<-i
+  # function finds the node (i-th row and j-th column) by which the table is to be divided
+  node_j <- 1
+  node_i <- 1
+  max_inf <- 0
+  
+  for(j in 1:ncol(X)) {
+    column_X <- X[,j]
+    # j_th column of X with distinct values only
+    unique_X <- unique(column_X)
+    # do not divide the table on the max value, because it'l result in an empty table
+    if(length(unique_X) > 1) {
+      unique_X <- unique_X[which(unique_X < max(unique_X))]
+    }
+    # same values of Xs column return the same entropy thus we can calculate it only once for every distinct value
+    for(i in 1:length(unique_X))
+    {
+      # get the first occurence of the unique value in the original column  
+      pos <- which(column_X == unique_X[i])[1]
+      pos <- as.numeric(pos)
+      ent<-get_split_entropy(column_X, C, pos)
+      
+      # save indices for the node with the maximum amount of information
+      if(I - ent > max_inf) {
+        max_inf <- I - ent
+        node_i <- pos
+        node_j <- j
       }
+    }
+    
   }
-  return(node)
+  return(list(node_i, node_j))
 }
 
 
 crt_dtree<-function(X,C)
 {
-  lstX<-list(X) #List of splitted variables datasets
-  lstC<-list(C) #List of splitted classes datasets
-  PosN<-rbind("root") #Position of node in current data set
-  ValN<-rbind("-") #Value of node
-  HF<-rbind("r") #Hierarchical flag
-  i<-1
-  while(i<=length(lstX))
+  lstX <- list(X) # list of splitted tables
+  lstC <- list(C) # list of splitted vectors of classess for the matching table
+  PosN <- rbind("root") # Position of the node in the current data set
+  ValN <- rbind("-") # Value of the node
+  HF <- rbind("r") # Hierarchical flag; x and y for the 'left' and 'right' branch, r for 'root'
+  node_pos <- list() # node indices in the table
+  i <- 1
+  while(i <= length(lstX))
   {
-    # node to atrybut/warunek, wedlug ktorego dzielimy tabele
-    node<-fnd_node(lstX[[i]],lstC[[i]]) #find node for current dataset
-    ent<-get_entropy(lstX[[i]],lstC[[i]]) #calculate entropy
-    if(ent!=0)
+    ent <- get_entropy(lstC[[i]]) # calculate entropy
+    # if entropy > 0 find the node to split the current table
+    if (ent != 0) { 
+      node_pos <- fnd_node(lstX[[i]],lstC[[i]], ent) 
+    }
+    # if entropy > 0 perform the split
+    if(ent != 0)
     {
-      #Split data set by node
-      pos<-which(lstX[[i]]<=lstX[[i]][node])
-      X1<-lstX[[i]][pos];X2<-lstX[[i]][-pos];
-      C1<-lstC[[i]][pos];C2<-lstC[[i]][-pos];
-      #Add to list new datasets
-      lstX[length(lstX)+1]<-list(X1)
-      lstX[length(lstX)+1]<-list(X2)
-      lstC[length(lstC)+1]<-list(C1)
-      lstC[length(lstC)+1]<-list(C2)
+      #Split the table by node
+      node_val <- lstX[[i]][node_pos[[1]], node_pos[[2]]]
+      pos <- which(lstX[[i]][, node_pos[[2]]] <= node_val)
+      
+      X1 <- lstX[[i]][pos,]; X2 <- lstX[[i]][-pos,];
+      C1 <- lstC[[i]][pos]; C2 <- lstC[[i]][-pos];
+      
+      #Add new tables to the list 
+      lstX[length(lstX) + 1] <- list(X1)
+      lstX[length(lstX) + 1] <- list(X2)
+      lstC[length(lstC) + 1] <- list(C1)
+      lstC[length(lstC) + 1] <- list(C2)
       #Save information
-      HF<-rbind(HF,paste0(HF[i],"x")) # jedna strona rozgalezienia
-      HF<-rbind(HF,paste0(HF[i],"y")) # i druga
-      PosN<-c(PosN,node)  # zapisz nr atrybutu, wedlug ktorego podzielilismy tabele
-      ValN<-c(ValN,round(lstX[[i]][node],3)) # zapisz wartosc atrybutu dzielacego tabele <- czy to potzebne?
+      HF <- rbind(HF, paste0(HF[i], "x"))
+      HF <- rbind(HF, paste0(HF[i], "y"))
+      PosN <- c(PosN, list(node_pos))  # save the indices of node the split was performed on
+      ValN <- c(ValN, round(node_val, 3)) # save value of node the split was performed on
     }
+    # otherwise save the class of the examples in the table as a 'leaf' element
     else{
-      # listC[[i]] w tym przypadku powinno zawierac juz tylko wystapienia jednej klasy
-      ValN<-c(ValN,round(unique(lstC[[i]]),3)) # zapisz przyporzadkowanie do klasy, "lisc"
+      ValN<-c(ValN, unique(lstC[[i]]))
     }
-    i<-i+1
+    i <- i + 1
   }
-  tree<-list(HF,PosN,ValN) #Key information about tree
-  names(tree)<-c("HF","PosN","ValN")
+  tree <- list(HF, PosN, ValN) # list of lists with information about the tree
+  names(tree) <- c("HF", "PosN", "ValN")
   return(tree)
 }
 
 
-set.seed(6) #We set seed for freezing results
-n1<-10;n2<-10
+cars_data <- read.csv('cars.csv')
+sum(is.na(cars_data))
+# only 5 NAs in the data frame so we can delete them
+cars_data <- na.omit(cars_data)
 
-#Variables from Gaussian distribution with different parameters
-X<-c(rnorm(n1,0),rnorm(n2,1))
-#Classes
-C<-c(rep(1,n1),rep(2,n2))
-#Create a tree
+y_name <- "brand"
+X <- cars_data[, !(names(cars_data) %in% y_name)]
+X <- data.matrix(X)
+
+C <- cars_data[y_name]
+C <- as.factor(C[,1])
+C <- levels(C)[as.numeric(C)]
+
 tree<-crt_dtree(X,C)
-
 tree[3]
+
+# Poprzez zmapowanie 3 list z informacjami z obiektu 'tree' mozna okreslic wartosci atrybutow dzielacych drzewo na 'galezie', 
+# elementy bedace 'liscmi', a takze strukture drzewa
+
+
