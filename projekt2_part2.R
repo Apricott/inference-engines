@@ -1,7 +1,4 @@
 
-## 
-## NOTA 1: dobrze dobrany zbior danych by duzo pomogl xD
-
 is.contained <- function(list1,list2) {
 # check if list1 is contained in list2
   x <- FALSE
@@ -35,32 +32,62 @@ forward_chaining <- function(fact = c()) {
   while(is_new) {
     is_new <<- FALSE
     for(assertion in facts) {
-      if(assertion[1] == 'mammal')
-        forward_chaining(c('vertebrate', assertion[2]))
-      if(assertion[1] == 'vertebrate')
-        forward_chaining(c('animal', assertion[2]))
-      if(assertion[1] == 'vertebrate' & is.contained(c('flying', assertion[2]), facts))
-        forward_chaining(c('bird', assertion[2]))
+      # Rules
+      if(assertion[1] == 'cylinders' & assertion[2] > 5 & is.contained(list('hp', '>100'), facts))
+        forward_chaining(list('brand', 'US.'))
+      if(assertion[1] == 'cubicinches' & assertion[2] == '<199')
+        forward_chaining(list('weightlbs', '~2500'))
+      if(assertion[1] == 'cubicinches' & assertion[2] == '>199')
+        forward_chaining(list('cylinders', 8))
+      if((assertion[1] == 'brand' & assertion[2] == 'US.'))
+        forward_chaining(list('mpg', '~20'))
+      if((assertion[1] == 'mpg' & assertion[2] != '~20'))
+        forward_chaining(list('year', '>1977'))
+      if((assertion[1] == 'cylinders' & assertion[2] > 5))
+        forward_chaining(list('year', '<1977'))
+      if((assertion[1] == 'brand' & assertion[2] == 'Europe.') | (is.contained(list('weightlbs','~2500'), facts)))
+        forward_chaining(list('mpg', '~25'))
+      
     }
     
   }
 }
 
 
-#=================== TABELA 1 =========================================== 
+cars_data <- read.csv('cars.csv')
+sum(is.na(cars_data))
+# only 5 NAs in the data frame so we can delete them
+cars_data <- na.omit(cars_data)
 
-# Wnioskowanie w przod
-facts <- list()
-facts[[1]] <- list('vertebrate','duck')
-facts[[2]] <- list('flying','duck')
-facts[[3]] <- list('mammal','cat')
+#=================== Wnioskowanie 1 =========================================== 
+print('Przewidywanie mpg na podstawie liczby cylindrow, pojemnosci silnika i mocy') 
 
-is_new <- TRUE
-forward_chaining()
-print(facts)
+for(i in 65:67) {
+  facts <- list()
+  facts[[1]] <- list('cylinders', cars_data[i, 2])
+  facts[[2]] <- list('cubicinches', ifelse(cars_data[i, 3] < 199, '<199', '>199'))
+  facts[[3]] <- list('hp', ifelse(cars_data[i, 4] < 100, '<100', '>100'))
+
+  is_new <- TRUE
+  forward_chaining()
+  print(facts)
+}
 
 
+print('=================================================================================')
 
+#=================== Wnioskowanie 2 =========================================== 
+print('Przewidywanie roku produkcji na podstawie kraju pochodzenia i pojemnosci silnika ')
+
+for(i in 65:67) {
+  facts <- list()
+  facts[[1]] <- list('brand', cars_data[i, 8])
+  facts[[2]] <- list('cubicinches', ifelse(cars_data[i, 3] < 199, '<199', '>199'))
+
+  is_new <- TRUE
+  forward_chaining()
+  print(facts)
+}
 
 
 
